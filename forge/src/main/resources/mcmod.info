@@ -1,0 +1,12 @@
+[
+  {
+    "modid": "sodiumlegacy",
+    "name": "Sodium Legacy",
+    "description": "Sodium Legacy is a free and open-source optimization mod for Minecraft which improves frame rates and reduces lag spikes.",
+    "version": "${version}",
+    "mcversion": "1.8.9",
+    "url": "https://github.com/Scaff0ld/sodium-legacy",
+    "authorList": ["jellysquid3", "Scaffold"],
+    "credits": "Based on Sodium by CaffeineMC"
+  }
+]

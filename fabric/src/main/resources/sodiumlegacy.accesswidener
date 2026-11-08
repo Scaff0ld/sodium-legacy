@@ -1,0 +1,14 @@
+accessWidener v1 named
+# NOTE: The 1.20.1 access widener targets were removed for the 1.8.9 port.
+# Re-add entries here (adapted to 1.8.9 names) only where the port actually
+# needs raised visibility.
+
+# 1.8.9 port: BlockRenderer's face-gate reads the contextual bounding box that
+# Block#setBoundingBox(BlockView, BlockPos) materializes (vanilla's own
+# isSideInvisible implementation reads these fields directly).
+accessible field net/minecraft/block/Block boundingBoxMinX D
+accessible field net/minecraft/block/Block boundingBoxMinY D
+accessible field net/minecraft/block/Block boundingBoxMinZ D
+accessible field net/minecraft/block/Block boundingBoxMaxX D
+accessible field net/minecraft/block/Block boundingBoxMaxY D
+accessible field net/minecraft/block/Block boundingBoxMaxZ D

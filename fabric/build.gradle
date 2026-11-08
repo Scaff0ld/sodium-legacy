@@ -1,0 +1,157 @@
+import org.gradle.api.tasks.bundling.Jar
+
+plugins {
+    id 'base'
+    id 'net.fabricmc.fabric-loom-remap' version '1.16-SNAPSHOT'
+    id 'legacy-looming' version '1.16-SNAPSHOT'
+}
+
+evaluationDependsOn(':core')
+
+base {
+    archivesName = 'sodiumlegacy-fabric'
+}
+
+def modJarName = "sodiumlegacy-fabric-${project.mod_version}-beta"
+
+version = project.mod_version
+
+tasks.withType(Jar).configureEach {
+    archiveFileName.set("${modJarName}.jar")
+}
+
+loom {
+    accessWidenerPath = file('src/main/resources/sodiumlegacy.accesswidener')
+}
+
+afterEvaluate {
+    sourceSets.main {
+        // Loom wires the mapped jar into main's compile classpath; add the vanilla
+        // libraries explicitly.
+        compileClasspath += configurations.minecraftLibraries
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings legacy.yarn(project.minecraft_version, project.yarn_build)
+    modImplementation "net.fabricmc:fabric-loader:${project.fabric_loader_version}"
+
+    //(shim LWJGL3 + common)
+    implementation project(':core')
+
+    // External libraries (Java-8 compatible, will be shaded/nested)
+    implementation("org.joml:joml:${project.joml_version}")   // not in MC 1.8.9 (introduced on 1.17)
+    include("org.joml:joml:${project.joml_version}")
+    implementation("it.unimi.dsi:fastutil:${project.fastutil_version}")  // not bundled with MC 1.8.9
+
+    // Annotations only (no runtime use)
+    compileOnly("org.jetbrains:annotations:${project.jetbrains_annotations_version}")
+}
+
+tasks.named('jar', Jar) {
+    from(rootProject.file('COPYING'))
+    from(rootProject.file('COPYING.LESSER'))
+
+    def core = project(':core').sourceSets.main
+    from(core.output.classesDirs)
+    from(core.output.resourcesDir)
+}
+
+tasks.named('processResources') {
+    inputs.property 'version', project.version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.register('printConfigs') { doLast { println configurations.names.sort().join(', ') } }
+
+// Packages only the fastutil classes the mod can actually reach at runtime.
+def fastutilKeepClasses = rootProject.file('gradle/fastutil-keep-classes.txt')
+
+def fastutilTrimmedJar = tasks.register('fastutilTrimmedJar', Zip) {
+    group = 'build'
+    description = 'Packages only the fastutil classes used by the mod (keeps ~450 of ~10700 classes).'
+    archiveBaseName.set('fastutil')
+    archiveVersion.set("${project.fastutil_version}-trimmed")
+    archiveFileName.set("fastutil-${project.fastutil_version}-trimmed.jar")
+    destinationDirectory.set(layout.buildDirectory.dir('fastutil-trimmed'))
+
+    def source = configurations.detachedConfiguration(
+            dependencies.create("it.unimi.dsi:fastutil:${project.fastutil_version}"))
+
+    def fastutilJar = source
+            .collect { it }
+            .find { it.name.endsWith('.jar') }
+    assert fastutilJar != null : 'fastutil jar could not be resolved'
+
+    from(zipTree(fastutilJar)) {
+        include(fastutilKeepClasses.readLines('UTF-8')
+                .collect { it.trim() }
+                .findAll { !it.isEmpty() }
+                .collect { it.replace('.', '/') + '.class' })
+    }
+
+    doLast {
+        def zip = new java.util.zip.ZipFile(outputs.files.files.first())
+        def entries = zip.entries().toList().findAll { it.name.endsWith('.class') }.size()
+        int expected = fastutilKeepClasses.readLines().findAll { it.trim() }.size()
+        zip.close()
+        if (entries != expected) {
+            throw new GradleException(
+                    "fastutilTrimmedJar packaged ${entries} classes but the keep list has ${expected}")
+        }
+    }
+}
+
+// Loom's include() only accepts Maven module components, so the trimmed fastutil jar
+// is nested manually: META-INF/jars/<jar> + a "jars" entry in fabric.mod.json.
+tasks.register('nestFastutil') {
+    group = 'build'
+    description = 'Nests the trimmed fastutil jar into the remapped mod jar.'
+    dependsOn 'remapJar', fastutilTrimmedJar
+
+    doLast {
+        def remapped = tasks.remapJar.archiveFile.get().asFile
+        def trimmed = fastutilTrimmedJar.get().outputs.files.first()
+        def nestedPath = 'META-INF/jars/' + trimmed.name
+        def temp = new File(remapped.parentFile, remapped.name + '.nesting')
+
+        def zip = new java.util.zip.ZipFile(remapped)
+        def zo = new java.util.zip.ZipOutputStream(new FileOutputStream(temp))
+        zip.entries().each { entry ->
+            if (entry.name == 'fabric.mod.json') {
+                def text = zip.getInputStream(entry).text
+                def meta = new groovy.json.JsonSlurper().parseText(text)
+                def jars = (meta.jars ?: []) as List
+                if (!jars.find { it.file == nestedPath }) {
+                    jars << [file: nestedPath]
+                }
+                meta.jars = jars
+                zo.putNextEntry(new java.util.zip.ZipEntry(entry.name))
+                zo.write(groovy.json.JsonOutput.toJson(meta).getBytes('UTF-8'))
+            } else {
+                zo.putNextEntry(new java.util.zip.ZipEntry(entry.name))
+                def input = zip.getInputStream(entry)
+                input.withCloseable { zo << input }
+                input.close()
+            }
+        }
+        zip.close()
+
+        zo.putNextEntry(new java.util.zip.ZipEntry(nestedPath))
+        def trimmedInput = new FileInputStream(trimmed)
+        trimmedInput.withCloseable { zo << trimmedInput }
+        trimmedInput.close()
+        zo.close()
+
+        remapped.delete()
+        temp.renameTo(remapped)
+    }
+}
+
+tasks.named('build') {
+    dependsOn 'nestFastutil'
+}

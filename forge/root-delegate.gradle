@@ -1,0 +1,40 @@
+apply plugin: 'java-base'
+
+def windows = System.getProperty('os.name').toLowerCase().contains('win')
+
+// Order: -PforgeJavaHome=<path>  >  toolchain JDK 17  >  current JAVA_HOME
+def resolveForgeJavaHome = {
+    if (project.hasProperty('forgeJavaHome')) {
+        return file(project.property('forgeJavaHome')).absolutePath
+    }
+
+    try {
+        return javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(17) }
+                .get().metadata.installationPath.asFile.absolutePath
+    } catch (Exception e) {
+        logger.warn('No JDK 17 found; falling back to JAVA_HOME. If it fails, install JDK 17 or pass ' +
+                '-PforgeJavaHome="C:\\path\\to\\jdk-17"')
+        return System.getenv('JAVA_HOME')
+    }
+}
+
+def delegateTask = { String taskName, String forgeTask, String text ->
+    tasks.register(taskName, Exec) {
+        group = 'forge'
+        description = text
+        workingDir = projectDir
+        commandLine(windows ? ['cmd', '/c', 'gradlew.bat', forgeTask] : ['./gradlew', forgeTask])
+
+        doFirst {
+            def javaHome = resolveForgeJavaHome()
+
+            if (javaHome != null) {
+                environment 'JAVA_HOME', javaHome
+            }
+        }
+    }
+}
+
+delegateTask('runClient', 'runClient', 'Launches the Minecraft 1.8.9 client with Forge')
+delegateTask('buildForge', 'build', 'Builds the mod jar for Forge (forge/build/libs)')
+delegateTask('cleanForge', 'clean', 'Cleans the Forge build')

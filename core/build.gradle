@@ -1,0 +1,50 @@
+// :core = the old "shim" + "common".
+// It must stay free of Minecraft and any loader: it only sees libraries that exist
+// in both Legacy Fabric and Forge 1.8.9 (the game itself ships them).
+
+plugins {
+    id 'java-library'
+}
+
+base {
+    archivesName = 'sodium-legacy-core'
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'Minecraft libraries'
+        url = uri('https://libraries.minecraft.net/')
+        metadataSources {
+            mavenPom()
+            artifact()
+        }
+    }
+    maven {
+        name = 'SpongePowered'
+        url = uri('https://repo.spongepowered.org/maven/')
+    }
+}
+
+dependencies {
+    // Libraries already shipped by Minecraft 1.8.9 (hence compileOnly)
+    compileOnly 'org.lwjgl.lwjgl:lwjgl:2.9.4-nightly-20150209'
+    compileOnly 'org.apache.logging.log4j:log4j-api:2.0-beta9'
+    compileOnly 'org.apache.commons:commons-lang3:3.3.2'
+    compileOnly 'commons-io:commons-io:2.4'
+    compileOnly 'com.google.code.gson:gson:2.2.4'
+    compileOnly 'com.google.guava:guava:17.0'
+    compileOnly 'org.ow2.asm:asm:5.0.3'
+    compileOnly 'org.ow2.asm:asm-tree:5.0.3'
+
+    // The mixins plugin (SodiumMixinPlugin) is loader-neutral; it compiles against the Mixin API.
+    // 0.8.5 is the same version the Forge annotation processor uses.
+    compileOnly 'org.spongepowered:mixin:0.8.5-SNAPSHOT'
+
+    // Libraries NOT shipped by 1.8.9: each loader must package them (Fabric: include; Forge: shadow)
+    compileOnly "org.joml:joml:${project.joml_version}"
+    compileOnly "it.unimi.dsi:fastutil:${project.fastutil_version}"
+
+    // Annotations only (no runtime use)
+    compileOnly "org.jetbrains:annotations:${project.jetbrains_annotations_version}"
+}

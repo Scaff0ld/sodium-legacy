@@ -1,0 +1,36 @@
+# gradle
+
+.gradle/
+build/
+out/
+classes/
+
+# idea
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# vscode
+
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# game client working directories (Loom's runClient: fabric/run, forge/run)
+
+fabric/run/
+forge/run/
+
+# macOS
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# windows
+
+Thumbs.db

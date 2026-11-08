@@ -1,0 +1,32 @@
+{
+  "package": "me.sodiumlegacy.mod.mixin",
+  "required": true,
+  "minVersion": "0.7.11",
+  "compatibilityLevel": "JAVA_8",
+  "plugin": "me.sodiumlegacy.mod.mixin.SodiumMixinPlugin",
+  "refmap": "mixins.sodiumlegacy.refmap.json",
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "conformVisibility": true
+  },
+  "client": [
+    "core.MinecraftClientMixin",
+    "core.I18nMixin",
+    "core.client.network.ClientPlayNetworkHandlerMixin",
+    "core.model.quad.BakedQuadMixin",
+    "core.render.world.WorldRendererMixin",
+    "core.world.map.ClientWorldMixin",
+    "features.gui.hooks.VideoOptionsScreenMixin",
+    "features.gui.hooks.debug.DebugHudMixin",
+    "features.options.overlays.InGameHudMixin",
+    "features.render.entity.cull.EntityRendererMixin",
+    "features.render.particle.ParticleManagerMixin",
+    "features.render.world.LivingEntityMixin",
+    "features.textures.ctm.FallbackResourceManagerMixin",
+    "features.textures.ctm.SpriteAtlasTextureMixin",
+    "features.world.WorldLightMixin",
+    "features.zoom.GameRendererMixin"
+  ]
+}
