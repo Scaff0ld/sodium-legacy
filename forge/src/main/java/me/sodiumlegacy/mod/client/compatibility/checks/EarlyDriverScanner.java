@@ -5,6 +5,7 @@ import me.sodiumlegacy.mod.client.platform.windows.WindowsDriverStoreVersion;
 import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterInfo;
 import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterProbe;
 import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterVendor;
+import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraft.util.Util;
 import org.jetbrains.annotations.Nullable;
 import org.apache.logging.log4j.Logger;
@@ -56,7 +57,9 @@ public class EarlyDriverScanner {
             LOGGER.error("Could not display the compatibility message box", t);
         }
 
-        System.exit(1 /* failure code */);
+        // Forge rewrites System.exit() at class-load time and always squawks about it. Use FML's
+        // official shutdown hook instead, which logs the exit through the loader itself.
+        FMLCommonHandler.instance().exitJava(1 /* failure code */, false);
     }
 
     // https://github.com/CaffeineMC/sodium-fabric/issues/899

@@ -81,6 +81,13 @@ public abstract class AbstractWidget {
         return this.font.getStringWidth(text);
     }
 
+    /**
+     * Called before dispatching a new click, so widgets can end any ongoing drag
+     * (e.g. a slider thumb still held from a previous click elsewhere).
+     */
+    public void resetDrag() {
+    }
+
     protected void playClickSound() {
         MinecraftClient.getInstance().getSoundManager()
                 .play(PositionedSoundInstance.master(new Identifier("gui.button.press"), 1.0F));

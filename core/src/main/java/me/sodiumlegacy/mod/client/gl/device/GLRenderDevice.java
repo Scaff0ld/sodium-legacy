@@ -253,8 +253,14 @@ public class GLRenderDevice implements RenderDevice {
 
             GlBuffer buffer = map.getBufferObject();
 
-            this.bindBuffer(GlBufferTarget.COPY_READ_BUFFER, buffer);
-            GL32C.glFlushMappedBufferRange(GlBufferTarget.COPY_READ_BUFFER.getTargetParameter(), offset, length);
+            // The mapping was created against ARRAY_BUFFER (see mapBuffer), and the GL spec requires
+            // glFlushMappedBufferRange to be issued with the same target the buffer was mapped on.
+            // Issuing it on a different target (this used to use COPY_READ_BUFFER) is GL_INVALID_OPERATION;
+            // several drivers (notably modern Intel UHD/Xe on Windows) handle it as a silent no-op, so the
+            // queued section uploads were never made visible to the GPU: most of the terrain simply did
+            // not render, with no errors anywhere.
+            this.bindBuffer(GlBufferTarget.ARRAY_BUFFER, buffer);
+            GL32C.glFlushMappedBufferRange(GlBufferTarget.ARRAY_BUFFER.getTargetParameter(), offset, length);
         }
 
         @Override

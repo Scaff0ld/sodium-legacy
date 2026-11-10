@@ -33,7 +33,9 @@ public class SodiumGameOptionPages {
                 .add(OptionImpl.createBuilder(int.class, vanillaOpts)
                         .setName(SodiumLang.translate("options.renderDistance"))
                         .setTooltip(SodiumLang.translate("sodiumlegacy.options.view_distance.tooltip"))
-                        .setControl(option -> new SliderControl(option, 2, (int) GameOptions.Option.RENDER_DISTANCE.getMaxValue(), 1, (v) -> v + " chunks"))
+                        // Max 16: never trust the vanilla enum max (OptiFine raises it to 32,
+                        // and this renderer isn't optimized for render distances above 16).
+                        .setControl(option -> new SliderControl(option, 2, 16, 1, (v) -> v + " chunks"))
                         .setBinding((options, value) -> {
                             options.viewDistance = value;
                             MinecraftClient.getInstance().worldRenderer.scheduleTerrainUpdate();

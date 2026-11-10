@@ -16,10 +16,6 @@ def modJarName = "sodiumlegacy-fabric-${project.mod_version}-beta"
 
 version = project.mod_version
 
-tasks.withType(Jar).configureEach {
-    archiveFileName.set("${modJarName}.jar")
-}
-
 loom {
     accessWidenerPath = file('src/main/resources/sodiumlegacy.accesswidener')
 }
@@ -50,6 +46,7 @@ dependencies {
 }
 
 tasks.named('jar', Jar) {
+    archiveClassifier.set('dev')
     from(rootProject.file('COPYING'))
     from(rootProject.file('COPYING.LESSER'))
 
@@ -64,6 +61,10 @@ tasks.named('processResources') {
     filesMatching('fabric.mod.json') {
         expand 'version': project.version
     }
+}
+
+tasks.named('remapJar') {
+    archiveFileName.set("${modJarName}.jar")
 }
 
 tasks.register('printConfigs') { doLast { println configurations.names.sort().join(', ') } }

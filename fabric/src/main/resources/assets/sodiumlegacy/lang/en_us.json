@@ -10,7 +10,7 @@
   "sodiumlegacy.options.pages.miscellaneous": "Miscellaneous",
   "key.sodiumlegacy.zoom": "Zoom",
   "sodiumlegacy.options.zoom_factor.name": "Zoom Amount",
-  "sodiumlegacy.options.zoom_factor.tooltip": "How much the camera zooms in while the zoom key (by default: C, in the Miscellaneous category under Controls) is active. OptiFine uses 4x by default.",
+  "sodiumlegacy.options.zoom_factor.tooltip": "How much the camera zooms in while the zoom key (by default: C, in the Miscellaneous category under Controls) is active.",
   "sodiumlegacy.options.zoom_mode.name": "Zoom Mode",
   "sodiumlegacy.options.zoom_mode.tooltip": "\"Hold\" zooms only while the zoom key is pressed down.\"Toggle\" presses once to zoom and again to stop.",
   "sodiumlegacy.options.zoom_smooth.name": "Smooth Zoom",

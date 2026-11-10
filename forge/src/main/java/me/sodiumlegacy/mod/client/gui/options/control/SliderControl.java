@@ -174,11 +174,14 @@ public class SliderControl implements Control<Integer> {
         }
 
         @Override
+        public void resetDrag() {
+            this.sliderHeld = false;
+        }
+
+        @Override
         public boolean mouseDragged(int mouseX, int mouseY, int button) {
-            if (this.option.isAvailable() && button == 0) {
-                if (this.sliderHeld) {
-                    this.setValueFromMouse(mouseX);
-                }
+            if (this.option.isAvailable() && button == 0 && this.sliderHeld) {
+                this.setValueFromMouse(mouseX);
 
                 return true;
             }

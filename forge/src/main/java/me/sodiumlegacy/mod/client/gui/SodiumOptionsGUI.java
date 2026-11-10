@@ -451,6 +451,13 @@ public class SodiumOptionsGUI extends GuiScreen implements ScreenPromptable {
             return;
         }
 
+        // End any drag that is still in progress (e.g. a slider thumb held from a
+        // previous click) before dispatching the new click, so at most one widget
+        // can be dragged at a time.
+        for (AbstractWidget widget : this.children) {
+            widget.resetDrag();
+        }
+
         for (AbstractWidget widget : this.children) {
             if (widget.mouseClicked(mouseX, mouseY, button)) {
                 return;
@@ -465,7 +472,10 @@ public class SodiumOptionsGUI extends GuiScreen implements ScreenPromptable {
         }
 
         for (AbstractWidget widget : this.children) {
-            widget.mouseDragged(mouseX, mouseY, button);
+            if (widget.mouseDragged(mouseX, mouseY, button)) {
+                // Only the widget that accepted the drag gets further drag events.
+                return;
+            }
         }
     }
 

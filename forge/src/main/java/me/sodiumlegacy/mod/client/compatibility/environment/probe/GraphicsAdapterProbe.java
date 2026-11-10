@@ -76,17 +76,27 @@ public class GraphicsAdapterProbe {
      * gracefully.
      */
     private static List<GraphicsAdapterInfo> findAdaptersWindows() {
-        List<GraphicsAdapterInfo> results = queryAdapters(
-                Arrays.asList("wmic", "path", "win32_videocontroller", "get",
-                        "AdapterCompatibility,DriverVersion,Name", "/format:list"),
-                "=");
+        // wmic is deprecated and no longer shipped on recent Windows builds (Windows 11 24H2+ purges
+        // wmic.exe entirely). Trying to spawn a missing executable both throws a noisy IOException with
+        // a full stack trace in the log and blocks while CreateProcess fails, so only attempt it when
+        // the binary is actually present.
+        // Note the JVM is 64-bit while on some Windows builds wmic lives only in the 32-bit tree, so
+        // probe both System32 and SysWOW64 (Sysnative is not resolvable from 64-bit processes).
+        if (hasExecutable("wbem", "wmic.exe")) {
+            List<GraphicsAdapterInfo> results = queryAdapters(
+                    Arrays.asList("wmic", "path", "win32_videocontroller", "get",
+                            "AdapterCompatibility,DriverVersion,Name", "/format:list"),
+                    "=");
 
-        if (results.isEmpty()) {
-            results = queryAdapters(
-                    Arrays.asList("powershell", "-NoProfile", "-Command",
-                            "Get-CimInstance Win32_VideoController | Format-List AdapterCompatibility,DriverVersion,Name"),
-                    " : ");
+            if (!results.isEmpty()) {
+                return results;
+            }
         }
+
+        List<GraphicsAdapterInfo> results = queryAdapters(
+                Arrays.asList("powershell", "-NoProfile", "-Command",
+                        "Get-CimInstance Win32_VideoController | Format-List AdapterCompatibility,DriverVersion,Name"),
+                " : ");
 
         if (results.isEmpty()) {
             LOGGER.warn("Unable to probe the graphics adapters; using a placeholder adapter with an unknown vendor");
@@ -245,6 +255,28 @@ public class GraphicsAdapterProbe {
             // The file does not exist or cannot be read
             return null;
         }
+    }
+
+    /**
+     * Checks whether an executable lives in one of the system directories, without spawning a
+     * process. Used to skip commands that were removed from recent Windows builds (e.g. wmic).
+     */
+    private static boolean hasExecutable(String subdirectory, String executable) {
+        String windir = System.getenv("WINDIR");
+
+        if (windir != null) {
+            for (String parent : new String[] { "System32", "SysWOW64" }) {
+                if (new File(new File(windir, parent), subdirectory)
+                        .toPath()
+                        .resolve(executable)
+                        .toFile()
+                        .isFile()) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static List<String> runCommand(List<String> command) throws IOException, InterruptedException {
