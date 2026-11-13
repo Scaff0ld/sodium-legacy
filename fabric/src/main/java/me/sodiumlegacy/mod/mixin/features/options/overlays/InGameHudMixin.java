@@ -9,6 +9,11 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Hooks the 1.8.9 HUD for the vignette quality option and for drawing the mod's on-screen
+ * console messages inside the scaled 2D GUI state. (The HUD component cache experiment was
+ * removed: it measured slower than vanilla even after per-component scissored caching.)
+ */
 @Mixin(InGameHud.class)
 public class InGameHudMixin {
     @Redirect(method = "render", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/MinecraftClient;isFancyGraphicsEnabled()Z"))

@@ -187,7 +187,9 @@ public class SodiumWorldRenderer {
      * camera's world position, pitch and yaw directly (obtained via {@link Camera#getPosition()} /
      * entity rotation).</p>
      */
-    public void setupTerrain(Vec3d cameraPos,
+    public void setupTerrain(double cameraX,
+                             double cameraY,
+                             double cameraZ,
                              float pitch,
                              float yaw,
                              Viewport viewport,
@@ -195,6 +197,14 @@ public class SodiumWorldRenderer {
                              boolean spectator,
                              boolean updateChunksImmediately) {
         NativeBuffer.reclaim(false);
+
+        // The vanilla fixed-function fog state is re-captured per frame during the layer draws
+        // (see ChunkFogState); mark the previous capture as stale for the uniform cache here.
+        me.sodiumlegacy.mod.client.render.chunk.shader.ChunkFogState.beginFrame();
+
+        // The chunk-render matrices are read once per frame during the layer draws (see
+        // drawChunkLayer); the matrix stacks are untouched between setupTerrain and the layers.
+        this.matricesCached = false;
 
         this.processChunkEvents();
 
@@ -206,16 +216,16 @@ public class SodiumWorldRenderer {
             this.reload();
         }
 
-        boolean dirty = cameraPos.x != this.lastCameraX || cameraPos.y != this.lastCameraY || cameraPos.z != this.lastCameraZ ||
+        boolean dirty = cameraX != this.lastCameraX || cameraY != this.lastCameraY || cameraZ != this.lastCameraZ ||
                 pitch != this.lastCameraPitch || yaw != this.lastCameraYaw;
 
         if (dirty) {
             this.renderSectionManager.markGraphDirty();
         }
 
-        this.lastCameraX = cameraPos.x;
-        this.lastCameraY = cameraPos.y;
-        this.lastCameraZ = cameraPos.z;
+        this.lastCameraX = cameraX;
+        this.lastCameraY = cameraY;
+        this.lastCameraZ = cameraZ;
         this.lastCameraPitch = pitch;
         this.lastCameraYaw = yaw;
 
@@ -224,14 +234,14 @@ public class SodiumWorldRenderer {
         this.renderSectionManager.uploadChunks(updateChunksImmediately);
 
         if (this.renderSectionManager.needsUpdate()) {
-            this.renderSectionManager.update(cameraPos, viewport, frame, spectator);
+            this.renderSectionManager.update(cameraX, cameraY, cameraZ, viewport, frame, spectator);
         }
 
         if (updateChunksImmediately) {
             this.renderSectionManager.uploadChunks(true);
         }
 
-        this.renderSectionManager.tickVisibleRenders();
+        // NOTE(1.8.9): sprite animation tracking (tickVisibleRenders upsteam) no longer exists.
 
         // TODO(1.8.9): entity render distance scaling (upstream Entity#setRenderDistanceMultiplier)
         // has no analog here.
@@ -254,11 +264,13 @@ public class SodiumWorldRenderer {
      * matrix stacks at this call; transforming region-relative vertices with them matches
      * vanilla's {@code M * T(chunk - camera) * vertex} composite bitwise.</p>
      */
-    public void drawChunkLayer(RenderLayer renderLayer, double x, double y, double z) {
-        ChunkRenderMatrices matrices = new ChunkRenderMatrices(
-                readMatrix(GL11C.GL_PROJECTION_MATRIX, this.projectionMatrixScratch),
-                readMatrix(GL11C.GL_MODELVIEW_MATRIX, this.modelViewMatrixScratch));
+    // Frame-scoped cache for the chunk-render matrices: setupTerrain runs exactly once per frame
+    // before any layer is drawn, and vanilla does not touch the matrix stacks between layers, so
+    // the first layer that needs the matrices reads them from GL and the rest of the frame reuses
+    // them. This removes up to 6 redundant glGetFloatv calls per frame (2 per live layer).
+    private boolean matricesCached;
 
+    public void drawChunkLayer(RenderLayer renderLayer, double x, double y, double z) {
         // MC 1.8.9 splits terrain into four RenderLayers; sodium's pipeline has three passes.
         // The single CUTOUT pass already contains BOTH the mipped and the non-mipped cutout
         // materials (the per-material choice is made in the shader through the mip bias, see
@@ -269,14 +281,28 @@ public class SodiumWorldRenderer {
         // re-rendered every cutout block (leaves, grass, ...) WITHOUT mipmaps on top of the first
         // one (same depth, GL_LEQUAL) -> distant foliage looked pixelated, and it doubled the cost.
         if (renderLayer == RenderLayer.SOLID) {
-            this.renderSectionManager.renderLayer(matrices, DefaultTerrainRenderPasses.SOLID, x, y, z);
+            this.renderSectionManager.renderLayer(matrices(), DefaultTerrainRenderPasses.SOLID, x, y, z);
         } else if (renderLayer == RenderLayer.CUTOUT_MIPPED) {
-            this.renderSectionManager.renderLayer(matrices, DefaultTerrainRenderPasses.CUTOUT, x, y, z);
+            this.renderSectionManager.renderLayer(matrices(), DefaultTerrainRenderPasses.CUTOUT, x, y, z);
         } else if (renderLayer == RenderLayer.CUTOUT) {
-            // intentionally empty: already drawn by the CUTOUT_MIPPED call above
+            // intentionally empty: already drawn by the CUTOUT_MIPPED call above (no matrix reads)
         } else if (renderLayer == RenderLayer.TRANSLUCENT) {
-            this.renderSectionManager.renderLayer(matrices, DefaultTerrainRenderPasses.TRANSLUCENT, x, y, z);
+            this.renderSectionManager.renderLayer(matrices(), DefaultTerrainRenderPasses.TRANSLUCENT, x, y, z);
         }
+    }
+
+    /**
+     * Returns the chunk render matrices, reading them from the GL matrix stacks on the first call
+     * of the frame and reusing the scratch matrices afterwards.
+     */
+    private ChunkRenderMatrices matrices() {
+        if (!this.matricesCached) {
+            readMatrix(GL11C.GL_PROJECTION_MATRIX, this.projectionMatrixScratch);
+            readMatrix(GL11C.GL_MODELVIEW_MATRIX, this.modelViewMatrixScratch);
+            this.matricesCached = true;
+        }
+
+        return new ChunkRenderMatrices(this.projectionMatrixScratch, this.modelViewMatrixScratch);
     }
 
     public void reload() {

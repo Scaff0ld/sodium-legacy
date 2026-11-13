@@ -8,15 +8,24 @@ public class CameraTransform {
     private static final float PRECISION_MODIFIER = RenderRegion.REGION_WIDTH * 16; // 16 blocks per section
 
     // The integer component of the translation vector
-    public final int intX, intY, intZ;
+    public int intX, intY, intZ;
 
     // The fractional component of the translation vector
-    public final float fracX, fracY, fracZ;
+    public float fracX, fracY, fracZ;
 
     // The original transform.
-    public final double x, y, z;
+    public double x, y, z;
 
     public CameraTransform(double x, double y, double z) {
+        this.set(x, y, z);
+    }
+
+    /**
+     * Re-populates this transform in place, allowing a single instance to be re-used across
+     * frames/renders instead of allocating a fresh object every call (this runs on the hot
+     * per-frame render path).
+     */
+    public CameraTransform set(double x, double y, double z) {
         this.intX = integral(x);
         this.intY = integral(y);
         this.intZ = integral(z);
@@ -28,6 +37,8 @@ public class CameraTransform {
         this.x = x;
         this.y = y;
         this.z = z;
+
+        return this;
     }
 
     private static int integral(double value) {

@@ -12,17 +12,26 @@ public class VisibleChunkCollector implements OcclusionCuller.Visitor {
     private final ObjectArrayList<ChunkRenderList> sortedRenderLists;
     private final EnumMap<ChunkUpdateType, ArrayDeque<RenderSection>> sortedRebuildLists;
 
-    private final int frame;
+    private int frame;
 
-    public VisibleChunkCollector(int frame) {
-        this.frame = frame;
-
+    public VisibleChunkCollector() {
         this.sortedRenderLists = new ObjectArrayList<>();
         this.sortedRebuildLists = new EnumMap<>(ChunkUpdateType.class);
 
         for (ChunkUpdateType type : ChunkUpdateType.values()) {
             this.sortedRebuildLists.put(type, new ArrayDeque<>());
         }
+    }
+
+    /**
+     * Prepares the collector for a graph traversal. The instance is re-used across updates
+     * (one per frame while the camera moves), so all per-traversal state is reset here. The
+     * rebuild deques are cleared by the render section manager's own {@code resetRenderLists}
+     * before this is called (they alias the map handed out by {@link #getRebuildLists()}).
+     */
+    public void begin(int frame) {
+        this.frame = frame;
+        this.sortedRenderLists.clear();
     }
 
     @Override

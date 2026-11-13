@@ -122,6 +122,10 @@ public final class GL20C {
         GL15.glBufferData(target, size, usage);
     }
 
+    public static void glBufferSubData(int target, long offset, ByteBuffer data) {
+        GL15.glBufferSubData(target, offset, data);
+    }
+
     public static void glDeleteBuffers(int buffer) {
         GL15.glDeleteBuffers(buffer);
     }

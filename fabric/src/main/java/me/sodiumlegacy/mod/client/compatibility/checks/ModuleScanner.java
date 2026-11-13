@@ -1,9 +1,6 @@
 package me.sodiumlegacy.mod.client.compatibility.checks;
 
 import me.sodiumlegacy.mod.client.platform.MessageBox;
-import me.sodiumlegacy.mod.client.platform.windows.api.version.LanguageCodePage;
-import me.sodiumlegacy.mod.client.platform.windows.api.version.Version;
-import me.sodiumlegacy.mod.client.platform.windows.api.version.VersionInfo;
 import net.minecraft.util.Util;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -113,9 +110,9 @@ public class ModuleScanner {
     }
 
     /**
-     * Attempts to locate the RivaTuner Statistics Server executable and read its file version. On Minecraft 1.8.9 we
-     * cannot rely on the native Windows API helpers (they are stubbed on this runtime), so the well-known installation
-     * paths of RTSS are probed instead.
+     * Attempts to locate the RivaTuner Statistics Server executable and read its file version.
+     * The native Windows version APIs are stubbed on this runtime, so the version is queried
+     * through PowerShell's {@code VersionInfo} instead (a plain child process, no natives).
      */
     private static String findRTSSModuleVersion() {
         Path executablePath = findRTSSExecutable();
@@ -127,28 +124,56 @@ public class ModuleScanner {
 
         LOGGER.info("Parsing file: {}", executablePath);
 
-        VersionInfo version = Version.getModuleFileVersion(executablePath.toAbsolutePath().toString());
+        // PowerShell is used over wmic here because wmic is deprecated on recent Windows builds
+        String[] command = new String[] {
+                "powershell", "-NoProfile", "-Command",
+                "(Get-Item -LiteralPath '" + executablePath.toAbsolutePath() + "').VersionInfo.FileVersion"
+        };
 
-        if (version == null) {
-            LOGGER.warn("Couldn't find version structure");
-            return null;
+        try {
+            List<String> lines = runProcess(command);
+
+            for (String line : lines) {
+                String trimmed = line.trim();
+
+                if (!trimmed.isEmpty()) {
+                    return trimmed;
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("Failed to query the file version with PowerShell", t);
         }
 
-        LanguageCodePage translation = version.queryEnglishTranslation();
+        return null;
+    }
 
-        if (translation == null) {
-            LOGGER.warn("Couldn't find suitable translation");
-            return null;
+    /**
+     * Runs the given command and returns its output lines (stdout and stderr merged).
+     */
+    private static List<String> runProcess(String[] command) throws IOException, InterruptedException {
+        List<String> lines = new ArrayList<String>();
+
+        Process process = Runtime.getRuntime().exec(command);
+        BufferedReader reader = null;
+
+        try {
+            reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+
+            for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+                lines.add(line);
+            }
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException ignored) {
+                }
+            }
         }
 
-        String fileVersion = version.queryValue("FileVersion", translation);
+        process.waitFor();
 
-        if (fileVersion == null) {
-            LOGGER.warn("Couldn't query file version");
-            return null;
-        }
-
-        return fileVersion;
+        return lines;
     }
 
     /**

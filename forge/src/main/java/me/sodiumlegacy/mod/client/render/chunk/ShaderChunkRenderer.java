@@ -10,10 +10,16 @@ import me.sodiumlegacy.mod.client.render.chunk.shader.*;
 import me.sodiumlegacy.mod.client.render.chunk.vertex.format.ChunkMeshAttribute;
 import me.sodiumlegacy.mod.client.render.chunk.vertex.format.ChunkVertexType;
 
+import java.util.IdentityHashMap;
 import java.util.Map;
 
 public abstract class ShaderChunkRenderer implements ChunkRenderer {
     private final Map<ChunkShaderOptions, GlProgram<ChunkShaderInterface>> programs = new Object2ObjectOpenHashMap<>();
+
+    // ChunkShaderOptions are derived entirely from (fog mode, pass, vertex type), which are all
+    // fixed at renderer construction, so one instance per pass can be cached instead of being
+    // re-allocated for every begin() call (3 passes × every frame).
+    private final Map<TerrainRenderPass, ChunkShaderOptions> optionsCache = new IdentityHashMap<>();
 
     protected final ChunkVertexType vertexType;
     protected final GlVertexFormat<ChunkMeshAttribute> vertexFormat;
@@ -66,7 +72,8 @@ public abstract class ShaderChunkRenderer implements ChunkRenderer {
     protected void begin(TerrainRenderPass pass) {
         pass.startDrawing();
 
-        ChunkShaderOptions options = new ChunkShaderOptions(ChunkFogMode.SMOOTH, pass, this.vertexType);
+        ChunkShaderOptions options = this.optionsCache.computeIfAbsent(pass,
+                p -> new ChunkShaderOptions(ChunkFogMode.SMOOTH, p, this.vertexType));
 
         this.activeProgram = this.compileProgram(options);
         this.activeProgram.bind();

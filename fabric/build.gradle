@@ -12,7 +12,7 @@ base {
     archivesName = 'sodiumlegacy-fabric'
 }
 
-def modJarName = "sodiumlegacy-fabric-${project.mod_version}-beta"
+def modJarName = "sodiumlegacy-fabric-${project.mod_version}-release"
 
 version = project.mod_version
 

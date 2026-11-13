@@ -15,6 +15,8 @@ import me.sodiumlegacy.mod.client.render.chunk.compile.ChunkBuildOutput;
 import me.sodiumlegacy.mod.client.render.chunk.compile.executor.ChunkBuilder;
 import me.sodiumlegacy.mod.client.render.chunk.compile.executor.ChunkJobResult;
 import me.sodiumlegacy.mod.client.render.chunk.compile.executor.ChunkJobCollector;
+
+import java.util.function.Consumer;
 import me.sodiumlegacy.mod.client.render.chunk.compile.executor.ChunkJobResult;
 import me.sodiumlegacy.mod.client.render.chunk.compile.executor.ChunkJobTyped;
 import me.sodiumlegacy.mod.client.render.chunk.compile.tasks.ChunkBuilderMeshingTask;
@@ -24,6 +26,7 @@ import me.sodiumlegacy.mod.client.render.chunk.lists.SortedRenderLists;
 import me.sodiumlegacy.mod.client.render.chunk.lists.VisibleChunkCollector;
 import me.sodiumlegacy.mod.client.render.chunk.occlusion.GraphDirection;
 import me.sodiumlegacy.mod.client.render.chunk.occlusion.OcclusionCuller;
+import me.sodiumlegacy.mod.client.render.chunk.shader.ChunkFogState;
 import me.sodiumlegacy.mod.client.render.chunk.region.RenderRegion;
 import me.sodiumlegacy.mod.client.render.chunk.region.RenderRegionManager;
 import me.sodiumlegacy.mod.client.render.chunk.terrain.DefaultTerrainRenderPasses;
@@ -45,7 +48,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.util.BlockPos;
-import net.minecraft.util.Vec3;
 import me.sodiumlegacy.mod.client.util.SectionPos;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
@@ -65,6 +67,10 @@ public class RenderSectionManager {
     private final Long2ReferenceMap<RenderSection> sectionByPosition = new Long2ReferenceOpenHashMap<>();
 
     private final ConcurrentLinkedDeque<ChunkJobResult<ChunkBuildOutput>> buildResults = new ConcurrentLinkedDeque<>();
+
+    // Cached method reference: `this.buildResults::add` used by the per-frame ChunkJobCollectors
+    // would otherwise allocate a fresh lambda instance on every call to updateChunks().
+    private final Consumer<ChunkJobResult<ChunkBuildOutput>> buildResultsConsumer = this.buildResults::add;
 
     private final ChunkRenderer chunkRenderer;
 
@@ -86,7 +92,12 @@ public class RenderSectionManager {
 
     private boolean needsUpdate;
 
-    private @Nullable BlockPos lastCameraPosition;
+    // Re-used camera position: a fresh BlockPos per graph update was pure GC churn on the
+    // hot path (the graph updates on every frame the camera moves).
+    private final BlockPos.MutableBlockPos lastCameraPosition = new BlockPos.MutableBlockPos();
+
+    // Re-used visitor: allocating one per graph update churned the GC while the camera moves.
+    private final VisibleChunkCollector visitor = new VisibleChunkCollector();
 
     public RenderSectionManager(WorldClient world, int renderDistance, CommandList commandList) {
         this.chunkRenderer = new DefaultChunkRenderer(RenderDevice.INSTANCE, ChunkMeshFormats.COMPACT);
@@ -110,30 +121,30 @@ public class RenderSectionManager {
         }
     }
 
-    public void update(Vec3 cameraPosition, Viewport viewport, int frame, boolean spectator) {
-        this.lastCameraPosition = new BlockPos(
-                (int) Math.floor(cameraPosition.xCoord),
-                (int) Math.floor(cameraPosition.yCoord),
-                (int) Math.floor(cameraPosition.zCoord));
+    public void update(double cameraX, double cameraY, double cameraZ, Viewport viewport, int frame, boolean spectator) {
+        this.lastCameraPosition.set(
+                (int) Math.floor(cameraX),
+                (int) Math.floor(cameraY),
+                (int) Math.floor(cameraZ));
 
-        this.createTerrainRenderList(cameraPosition, viewport, frame, spectator);
+        this.createTerrainRenderList(viewport, frame, spectator);
 
         this.needsUpdate = false;
         this.lastUpdatedFrame = frame;
     }
 
-    private void createTerrainRenderList(Vec3 cameraPosition, Viewport viewport, int frame, boolean spectator) {
+    private void createTerrainRenderList(Viewport viewport, int frame, boolean spectator) {
         this.resetRenderLists();
 
         final float searchDistance = this.getSearchDistance();
-        final boolean useOcclusionCulling = this.shouldUseOcclusionCulling(cameraPosition, spectator);
+        final boolean useOcclusionCulling = this.shouldUseOcclusionCulling(spectator);
 
-        VisibleChunkCollector visitor = new VisibleChunkCollector(frame);
+        this.visitor.begin(frame);
 
-        this.occlusionCuller.findVisible(visitor, viewport, searchDistance, useOcclusionCulling, frame);
+        this.occlusionCuller.findVisible(this.visitor, viewport, searchDistance, useOcclusionCulling, frame);
 
-        this.renderLists = visitor.createRenderLists();
-        this.rebuildLists = visitor.getRebuildLists();
+        this.renderLists = this.visitor.createRenderLists();
+        this.rebuildLists = this.visitor.getRebuildLists();
     }
 
     private float getSearchDistance() {
@@ -148,14 +159,10 @@ public class RenderSectionManager {
         return distance;
     }
 
-    private boolean shouldUseOcclusionCulling(Vec3 cameraPosition, boolean spectator) {
+    private boolean shouldUseOcclusionCulling(boolean spectator) {
         boolean useOcclusionCulling;
-        BlockPos origin = new BlockPos(
-                (int) Math.floor(cameraPosition.xCoord),
-                (int) Math.floor(cameraPosition.yCoord),
-                (int) Math.floor(cameraPosition.zCoord));
 
-        if (spectator && this.isOpaqueFullCube(origin)) {
+        if (spectator && this.isOpaqueFullCube(this.lastCameraPosition)) {
             useOcclusionCulling = false;
         } else {
             useOcclusionCulling = true;
@@ -228,48 +235,21 @@ public class RenderSectionManager {
         this.needsUpdate = true;
     }
 
+    // Re-used across per-layer render calls instead of allocating a fresh transform for each layer.
+    private final CameraTransform cameraTransform = new CameraTransform(0.0, 0.0, 0.0);
+
     public void renderLayer(ChunkRenderMatrices matrices, TerrainRenderPass pass, double x, double y, double z) {
         RenderDevice device = RenderDevice.INSTANCE;
         CommandList commandList = device.createCommandList();
 
-        this.chunkRenderer.render(matrices, commandList, this.renderLists, pass, new CameraTransform(x, y, z));
+        this.chunkRenderer.render(matrices, commandList, this.renderLists, pass, this.cameraTransform.set(x, y, z));
 
         commandList.flush();
     }
 
-    public void tickVisibleRenders() {
-        Iterator<ChunkRenderList> it = this.renderLists.iterator();
-
-        while (it.hasNext()) {
-            ChunkRenderList renderList = it.next();
-
-            RenderRegion region = renderList.getRegion();
-
-            ByteIterator iterator = renderList.sectionsWithSpritesIterator();
-
-            if (iterator == null) {
-                continue;
-            }
-
-            while (iterator.hasNext()) {
-                RenderSection section = region.getSection(iterator.nextByteAsInt());
-
-                if (section == null) {
-                    continue;
-                }
-
-                TextureAtlasSprite[] sprites = section.getAnimatedSprites();
-
-                if (sprites == null) {
-                    continue;
-                }
-
-                for (TextureAtlasSprite TextureAtlasSprite : sprites) {
-                    SpriteUtil.markSpriteActive(TextureAtlasSprite);
-                }
-            }
-        }
-    }
+    // NOTE(1.8.9): vanilla Sodium's tickVisibleRenders (sprite
+    // animation tracking) was removed in the port — see SpriteUtil — so
+    // there is nothing to do per frame anymore.
 
     public boolean isSectionVisible(int x, int y, int z) {
         RenderSection render = this.getRenderSection(x, y, z);
@@ -285,8 +265,8 @@ public class RenderSectionManager {
         this.sectionCache.cleanup();
         this.regions.update();
 
-        ChunkJobCollector blockingRebuilds = new ChunkJobCollector(Integer.MAX_VALUE, this.buildResults::add);
-        ChunkJobCollector deferredRebuilds = new ChunkJobCollector(this.builder.getSchedulingBudget(), this.buildResults::add);
+        ChunkJobCollector blockingRebuilds = new ChunkJobCollector(Integer.MAX_VALUE, this.buildResultsConsumer);
+        ChunkJobCollector deferredRebuilds = new ChunkJobCollector(this.builder.getSchedulingBudget(), this.buildResultsConsumer);
 
         this.submitRebuildTasks(blockingRebuilds, ChunkUpdateType.IMPORTANT_REBUILD);
         this.submitRebuildTasks(updateImmediately ? blockingRebuilds : deferredRebuilds, ChunkUpdateType.REBUILD);
@@ -505,9 +485,17 @@ public class RenderSectionManager {
     }
 
     private float getEffectiveRenderDistance() {
-        // TODO(1.8.9): upstream trims the render distance against the fog end value (RenderSystem
-        // shader fog state). 1.8.9's fixed-function fog lives in GL state, so for now we simply use
-        // the full render distance (fog occlusion still applies via the occlusion culler settings).
+        // Upstream trims the graph search against the fog end value. 1.8.9's fixed-function fog
+        // state is only guaranteed to hold the terrain fog while the layers render, so it is
+        // captured by the chunk fog shader component (ChunkFogState) and consumed here one frame
+        // later. Sections whose entire bounding box lies beyond the fog end are fully
+        // fog-colored and therefore never contribute visible geometry.
+        if (ChunkFogState.isLinearFog()) {
+            return Math.min(this.getRenderDistance(), ChunkFogState.getFogEnd());
+        }
+
+        // EXP fog (water/lava/underground/blindness) is now reproduced by the chunk shader, but
+        // it is dense: keep the full search distance to stay conservative.
         return this.getRenderDistance();
     }
 

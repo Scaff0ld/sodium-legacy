@@ -6,15 +6,27 @@ import net.minecraft.util.math.BlockPos;
 import org.joml.Vector3d;
 
 public final class Viewport {
-    private final Frustum frustum;
-    private final CameraTransform transform;
+    private Frustum frustum;
+    private CameraTransform transform;
 
-    private final SectionPos chunkCoords;
-    private final BlockPos blockCoords;
+    private SectionPos chunkCoords;
+    private BlockPos blockCoords;
 
     public Viewport(Frustum frustum, Vector3d position) {
+        // `transform` is re-used via set(); chunkCoords / blockCoords are immutable MC/utility
+        // types, so they are still fresh allocations per set() (kept small on purpose).
+        this.transform = new CameraTransform(0.0, 0.0, 0.0);
+
+        this.set(frustum, position);
+    }
+
+    /**
+     * Re-populates this viewport in place. Avoids allocating a fresh Viewport + CameraTransform
+     * (and letting the old ones die young in the nursery) on the per-frame terrain setup path.
+     */
+    public Viewport set(Frustum frustum, Vector3d position) {
         this.frustum = frustum;
-        this.transform = new CameraTransform(position.x, position.y, position.z);
+        this.transform.set(position.x, position.y, position.z);
 
         this.chunkCoords = SectionPos.from(
                 SectionPos.getSectionCoord((int) Math.floor(position.x)),
@@ -26,6 +38,8 @@ public final class Viewport {
                 (int) Math.floor(position.x),
                 (int) Math.floor(position.y),
                 (int) Math.floor(position.z));
+
+        return this;
     }
 
     public boolean isBoxVisible(int intOriginX, int intOriginY, int intOriginZ, float floatSizeX, float floatSizeY, float floatSizeZ) {

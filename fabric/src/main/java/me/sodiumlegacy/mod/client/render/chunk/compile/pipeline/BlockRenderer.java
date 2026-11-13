@@ -157,11 +157,17 @@ public class BlockRenderer {
             return false;
         }
 
-        // "Leaves" option: opaque (fast) leaves never show faces against other leaves, and fancy
-        // leaves ignore vanilla's graphics-dependent same-block rule (it would hide interior faces
+        // "Leaves" option: opaque (fast) leaves never show faces against other leaves. Fancy leaves
+        // ignore vanilla's graphics-dependent same-block rule (it would hide interior faces
         // whenever the global graphics setting is Fast, whatever this option says).
+        // Perf: with "Hide Inner Faces" enabled, fancy leaves cull the interior face against ANY
+        // adjacent leaf block (oak next to birch, oak with/without decay state...). What can be
+        // seen through the texture gaps are the outer faces of the neighboring leaf, not the
+        // interior faces, so hiding them roughly halves the leaf-leaf quad count in dense canopies
+        // at no visible cost. With the option off, only identical-type neighbors stay culled.
         if (ctx.state().getBlock() instanceof LeavesBlock) {
-            if (neighborBlock instanceof LeavesBlock && (!this.fancyLeaves || this.isIdenticalTranslucentNeighbor(ctx, offset))) {
+            if (neighborBlock instanceof LeavesBlock && (!this.fancyLeaves ||
+                    this.cullIdenticalTranslucent || this.isIdenticalTranslucentNeighbor(ctx, offset))) {
                 return false;
             }
 
@@ -273,15 +279,26 @@ public class BlockRenderer {
         BlockState neighbor = this.blockView.getBlockState(this.neighborPos);
         Block selfBlock = self.getBlock();
 
-        if (selfBlock instanceof LeavesBlock && !this.fancyLeaves) {
-            return neighbor.getBlock() instanceof LeavesBlock;
+        if (selfBlock instanceof LeavesBlock) {
+            // Fast leaves: any leaf neighbor hides the interior face (their whole block renders
+            // solid). Fancy leaves with "Hide Inner Faces": any leaf kind, same reasoning as the
+            // per-face gate in isFaceVisible (dense canopies keep their outer faces only).
+            if (!this.fancyLeaves || this.cullIdenticalTranslucent) {
+                return neighbor.getBlock() instanceof LeavesBlock;
+            }
         }
 
         if (neighbor.getBlock() != selfBlock) {
             return false;
         }
 
-        if (selfBlock instanceof LeavesBlock || selfBlock instanceof PaneBlock) {
+        if (selfBlock instanceof PaneBlock) {
+            return true;
+        }
+
+        // Leaves with "Hide Inner Faces" off: old parity — any state of the same leaf type
+        // (decay flags may differ between sister blocks).
+        if (selfBlock instanceof LeavesBlock) {
             return true;
         }
 

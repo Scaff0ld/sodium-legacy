@@ -80,6 +80,15 @@ public abstract class WorldRendererMixin implements WorldRendererExtended {
     @Unique
     private int frame;
 
+    // Per-frame scratch objects re-used on the setupTerrain hot path (avoids fresh allocations
+    // for the Viewport + camera Vector3d every single frame).
+    @Unique
+    private final Viewport viewport =
+            new Viewport(null, new Vector3d());
+
+    @Unique
+    private final Vector3d viewportPosition = new Vector3d();
+
     // vanilla state consumed by our renderEntities overwrite
     @Shadow
     private MinecraftClient client;
@@ -367,9 +376,10 @@ public abstract class WorldRendererMixin implements WorldRendererExtended {
         // The vanilla camera position tracks the smooth (interpolated) entity position; the pitch
         // and yaw fields hold the current fixed values for this frame (exactly like vanilla's
         // frustum rebuild entry points use them).
-        Viewport viewport = new Viewport(
-                this.renderer.updateFrustum(),
-                new Vector3d(x, y, z));
+        // The viewport and its position vector are re-used every frame instead of being re-allocated
+        // (this runs once per frame on the hot setup path).
+        Viewport viewport = this.viewport.set(this.renderer.updateFrustum(),
+                this.viewportPosition.set(x, y, z));
 
         boolean updateChunksImmediately = FlawlessFrames.isActive();
 
@@ -377,7 +387,9 @@ public abstract class WorldRendererMixin implements WorldRendererExtended {
 
         try {
             this.renderer.setupTerrain(
-                    new net.minecraft.util.math.Vec3d(x, y, z),
+                    x,
+                    y,
+                    z,
                     entity.pitch,
                     entity.yaw,
                     viewport,

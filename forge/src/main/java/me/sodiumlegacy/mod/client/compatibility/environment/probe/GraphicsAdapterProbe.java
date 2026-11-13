@@ -107,9 +107,14 @@ public class GraphicsAdapterProbe {
     }
 
     /**
-     * Executes the given command and parses its output into one adapter entry per blank-line
-     * separated block of {@code Key<separator>Value} pairs (this is the shape of both {@code wmic
-     * /format:list} and PowerShell's {@code Format-List}).
+     * Executes the given command and parses its output into one adapter entry per adapter. The
+     * output is a sequence of blank-line separated blocks of {@code Key<separator>Value} pairs
+     * (the shape of both {@code wmic /format:list} and PowerShell's {@code Format-List}).
+     *
+     * <p>Known quirk: {@code wmic} can split the fields of a single adapter into several
+     * consecutive blocks, each holding a different subset of the keys (for example, a driver
+     * version block with no name, and a name block with no version). Blocks that share no keys
+     * are therefore merged into the same adapter; a new adapter always re-reports every key.</p>
      */
     private static List<GraphicsAdapterInfo> queryAdapters(List<String> command, String separator) {
         List<GraphicsAdapterInfo> results = new ArrayList<GraphicsAdapterInfo>();
@@ -123,14 +128,20 @@ public class GraphicsAdapterProbe {
             return results;
         }
 
+        // Collect the raw field blocks first (merging split blocks), then build the adapter
+        // entries from the merged blocks.
+        List<Map<String, String>> blocks = new ArrayList<Map<String, String>>();
+
         Map<String, String> block = new HashMap<String, String>();
 
         for (String rawLine : lines) {
             String line = rawLine.trim();
 
             if (line.isEmpty()) {
-                addAdapterFromBlock(block, results);
-                block.clear();
+                if (!block.isEmpty()) {
+                    blocks.add(block);
+                    block = new HashMap<String, String>();
+                }
                 continue;
             }
 
@@ -142,31 +153,74 @@ public class GraphicsAdapterProbe {
             String key = line.substring(0, delimiter).trim().toLowerCase(Locale.ROOT);
             String value = line.substring(delimiter + separator.length()).trim();
 
-            block.put(key, value);
+            // wmic reports empty values for fields it could not read; normalize them away
+            block.put(key, value.isEmpty() ? null : value);
         }
 
-        addAdapterFromBlock(block, results);
+        if (!block.isEmpty()) {
+            blocks.add(block);
+        }
+
+        // Merge consecutive blocks that share no keys into a single adapter block
+        for (int i = 1; i < blocks.size(); i++) {
+            Map<String, String> previous = blocks.get(i - 1);
+            Map<String, String> current = blocks.get(i);
+
+            if (!intersects(previous.keySet(), current.keySet())) {
+                // null values in the merged map mean "field absent", so the non-null value wins
+                for (Map.Entry<String, String> entry : current.entrySet()) {
+                    String existing = previous.get(entry.getKey());
+
+                    if (existing == null) {
+                        previous.put(entry.getKey(), entry.getValue());
+                    }
+                }
+
+                blocks.remove(i);
+                i--;
+            }
+        }
+
+        for (Map<String, String> adapterBlock : blocks) {
+            addAdapterFromBlock(adapterBlock, results);
+        }
 
         return results;
     }
 
-    private static void addAdapterFromBlock(Map<String, String> block, List<GraphicsAdapterInfo> results) {
-        if (block.isEmpty()) {
-            return;
+    private static boolean intersects(java.util.Set<String> a, java.util.Set<String> b) {
+        for (String key : b) {
+            if (a.contains(key)) {
+                return true;
+            }
         }
 
+        return false;
+    }
+
+    private static void addAdapterFromBlock(Map<String, String> block, List<GraphicsAdapterInfo> results) {
         // The block keys are normalized to lowercase for lookup
         String compatibility = block.get("adaptercompatibility");
-        String name = block.containsKey("name") ? block.get("name") : "unknown";
-        String version = block.containsKey("driverversion") ? block.get("driverversion") : "unknown";
+        String name = block.get("name");
+        String version = block.get("driverversion");
 
         GraphicsAdapterVendor vendor = GraphicsAdapterVendor.identifyVendorFromString(
                 compatibility != null ? compatibility : "");
 
-        GraphicsAdapterInfo info = new GraphicsAdapterInfo(vendor, name, version);
+        // Old/broken wmic output often loses the AdapterCompatibility field; the human-readable
+        // name almost always identifies the vendor ("Intel(R) HD Graphics", "NVIDIA GeForce ...").
+        if (vendor == GraphicsAdapterVendor.UNKNOWN && name != null) {
+            vendor = GraphicsAdapterVendor.identifyVendorFromString(name);
+        }
+
+        GraphicsAdapterInfo info = new GraphicsAdapterInfo(
+                vendor,
+                name != null ? name : "unknown",
+                version != null ? version : "unknown");
+
         results.add(info);
 
-        LOGGER.info("Found graphics card: {} ({})", info.name(), info.version());
+        LOGGER.info("Found graphics card: {} ({}) [{}]", info.name(), info.version(), vendor);
     }
 
     /**

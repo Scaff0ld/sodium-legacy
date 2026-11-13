@@ -96,7 +96,7 @@ tasks.withType<JavaCompile> {
 
 tasks.withType<Jar> {
     archiveBaseName.set("sodiumlegacy-forge")
-    archiveVersion.set("$modVersion-beta")
+    archiveVersion.set("$modVersion-release")
     manifest.attributes.run {
         this["FMLCorePluginContainsFMLMod"] = "true"
         this["ForceLoadAsMod"] = "true"
@@ -115,7 +115,7 @@ tasks.processResources {
 
 val remapJar by tasks.named<net.fabricmc.loom.task.RemapJarTask>("remapJar") {
     archiveClassifier.set("")
-    archiveFileName.set("sodiumlegacy-forge-$modVersion-beta.jar")
+    archiveFileName.set("sodiumlegacy-forge-$modVersion-release.jar")
     from(tasks.shadowJar)
     input.set(tasks.shadowJar.get().archiveFile)
 }

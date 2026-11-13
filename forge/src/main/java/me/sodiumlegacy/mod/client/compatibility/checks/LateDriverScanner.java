@@ -43,6 +43,17 @@ public class LateDriverScanner {
         LOGGER.info("OpenGL Renderer: {}", driver.renderer());
         LOGGER.info("OpenGL Version: {}", driver.version());
 
+        // Upstream installs an NVIDIA workaround here (masking the process command line and
+        // setting environment variables) to stop the driver's "Threaded Optimizations" from
+        // detecting the game. That mechanism relies on native helpers which do not exist on
+        // the MC 1.8.9 runtime, so the effect cannot be reproduced; the manual equivalent is
+        // pointed out instead.
+        if (driver.renderer().contains("NVIDIA")) {
+            LOGGER.info("NVIDIA GPU detected. If you experience unexplained crashes or severe performance issues, " +
+                    "disable 'Threaded Optimizations' for javaw.exe in the NVIDIA Control Panel " +
+                    "(Manage 3D settings -> Program Settings).");
+        }
+
         if (!isSupportedNvidiaDriver(driver)) {
             Console.instance()
                     .logMessage(MessageLevel.SEVERE,

@@ -1,8 +1,5 @@
 package me.sodiumlegacy.mod.client.compatibility.workarounds;
 
-import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterInfo;
-import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterProbe;
-import me.sodiumlegacy.mod.client.compatibility.environment.probe.GraphicsAdapterVendor;
 import net.minecraft.util.Util;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
@@ -35,11 +32,11 @@ public class Workarounds {
         Set<Reference> workarounds = EnumSet.noneOf(Reference.class);
         Util.OperatingSystem operatingSystem = Util.getOperatingSystem();
 
-        Collection<GraphicsAdapterInfo> graphicsAdapters = GraphicsAdapterProbe.getAdapters();
-
-        if (isUsingNvidiaGraphicsCard(operatingSystem, graphicsAdapters)) {
-            workarounds.add(Reference.NVIDIA_THREADED_OPTIMIZATIONS);
-        }
+        // Upstream detects NVIDIA GPUs here to install the NVIDIA_THREADED_OPTIMIZATIONS
+        // workaround (command-line masking + env variable poking). That workaround relies on
+        // native helpers which do not exist on the MC 1.8.9 runtime and was therefore removed;
+        // the manual fix (disabling Threaded Optimizations for javaw.exe in the NVIDIA Control
+        // Panel) is printed by the post-context driver scan instead.
 
         if (operatingSystem == Util.OperatingSystem.LINUX) {
             String session = System.getenv("XDG_SESSION_TYPE");
@@ -58,24 +55,12 @@ public class Workarounds {
         return Collections.unmodifiableSet(workarounds);
     }
 
-    private static boolean isUsingNvidiaGraphicsCard(Util.OperatingSystem operatingSystem, Collection<GraphicsAdapterInfo> adapters) {
-        return (operatingSystem == Util.OperatingSystem.WINDOWS || operatingSystem == Util.OperatingSystem.LINUX) &&
-                adapters.stream().anyMatch(adapter -> adapter.vendor() == GraphicsAdapterVendor.NVIDIA);
-    }
-
     public static boolean isWorkaroundEnabled(Reference id) {
         return ACTIVE_WORKAROUNDS.get()
                 .contains(id);
     }
 
     public enum Reference {
-        /**
-         * The NVIDIA driver applies "Threaded Optimizations" when Minecraft is detected, causing severe
-         * performance issues and crashes.
-         * <a href="https://github.com/CaffeineMC/sodium-fabric/issues/1816">GitHub Issue</a>
-         */
-        NVIDIA_THREADED_OPTIMIZATIONS,
-
         /**
          * Requesting a No Error Context causes a crash at startup when using a Wayland session.
          * <a href="https://github.com/CaffeineMC/sodium-fabric/issues/1624">GitHub Issue</a>
